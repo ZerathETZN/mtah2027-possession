@@ -39,6 +39,12 @@ GRID = {
     "team_margin": [0.5, 1.5, 3.0],
     "interp_gap": [0, 12],
     "w_out_carry": [0.0, 1.0, 2.0],
+    "w_still": [0.0, 1.5, 3.0],
+    "w_zone": [0.0, 1.0, 2.0],
+    "w_goal": [0.0, 5.0],
+    "w_restart": [0.0, 1.5, 3.0],
+    "restart_hold_s": [1.0, 2.0, 4.0],
+    "w_restart_alive": [0.0, 2.0, 4.0],
 }
 
 

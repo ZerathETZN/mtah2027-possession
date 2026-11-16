@@ -29,7 +29,17 @@ Runs in a few seconds after the first ATD parse (cached in `cache/`, gitignored)
    and `from_dead_cost`. A cost of 40 means roughly 1.6 s of clear evidence is needed to change
    possession -- our encoding of "controlled" possession, which ignores touches and deflections.
    `to_dead_cost + from_dead_cost > switch_cost` so changes are not routed through fake stoppages.
-5. **Structure.** Ungraded frames are `X`; frames from the start of a half to its tagged kickoff are
+5. **More dead-ball evidence.** A still ball (under `still_speed` m/s for `still_window` frames)
+   looks like a placed ball before a set piece (`w_still`), more so at a touchline, goal line or
+   goal area (`w_zone`: throw-in, corner, goal kick). From the ball entering the goal to the
+   "Kick Off (After Goal)" tag is dead (`w_goal`; falls back to 60 s before the kick-off when the
+   ball is not tracked into the net).
+6. **Restart team.** When play resumes (a still run of `min_still` frames ends, or a tagged
+   set-piece restart), the player nearest the ball (within `kicker_radius`) is taken as the
+   kicker. Their team gets a `w_restart` bonus for `restart_hold_s` seconds and the dead state a
+   `w_restart_alive` penalty. 73 restarts are attributed this way; when no player is close to a
+   tracked ball, nothing is added.
+7. **Structure.** Ungraded frames are `X`; frames from the start of a half to its tagged kickoff are
    `D`.
 
 ## Assets used
@@ -57,6 +67,9 @@ See `Params` in [`possession/model.py`](possession/model.py) and the sweep in
 - Nearest-player is a weak proxy for control; it fails in duels and during long passes.
 - The ball is missing on 41% of graded frames, often for long stretches, so interpolation does not
   help and possession is carried by the decoder.
-- Dead-ball detection is heuristic; throw-ins have no team tag.
+- Dead-ball detection is heuristic; throw-ins have no team tag. About 20% of graded frames are
+  labelled dead, below the 35-40% typical of a professional match.
+- A goalkeeper holding the ball also looks "still" and can be mislabelled as a dead ball.
+- Restarts are only attributed when the ball is tracked at the moment play resumes.
 - With more time: learn per-frame emissions from labelled *other* games, use ball velocity
   (pass/shot detection), use the video for ball detection where ATD loses it.

@@ -15,7 +15,11 @@ Pipeline
    full-strength evidence, so switch_cost=40 means "the other team needs ~1.6 s of clear
    evidence before possession changes". This is what makes possessions whole instead of
    flickering, and is the main knob on the number of possessions.
-6. Hard structure: frames outside the graded halves are X; frames between the start of a half and
+6. Extra dead-ball evidence: a still ball (placed for a set piece), a still ball at a touchline /
+   goal line / goal area (throw-in, corner, goal kick), and goal -> kick-off windows.
+7. Restart team: when play resumes (a still ball starts moving, or a tagged set-piece restart),
+   the team of the player nearest the ball gets a short bonus and the ball counts as alive.
+8. Hard structure: frames outside the graded halves are X; frames between the start of a half and
    its tagged kickoff are D.
 
 Everything here is computed from the provided ATD and Smart Tagging only. No ground truth is read.
@@ -63,8 +67,7 @@ class Params:
     to_dead_cost: float = 40.0     # keep to_dead + from_dead > switch_cost, or the decoder
                                    # "switches" by sneaking through a fake dead ball
     from_dead_cost: float = 20.0
-
-        # --- step 1: extra dead-ball evidence
+    # --- step 1: extra dead-ball evidence
     still_speed: float = 1.0      # m/s; ball slower than this counts as still
     still_window: int = 25        # frames (1 s) the ball must stay still
     w_still: float = 1.5          # still ball -> looks like a set piece
@@ -77,7 +80,6 @@ class Params:
     w_restart: float = 1.5        # team bonus for the kicker's side after a restart
     restart_hold_s: float = 2.0   # how long that bonus lasts
     w_restart_alive: float = 2.0  # just after a restart the ball is alive, not dead
-
 
     def as_dict(self):
         return asdict(self)
@@ -181,6 +183,33 @@ def goal_dead(atd, tags, p, game=GAME):
     return out
 
 
+def restart_events(atd, still, tag_restarts, p):
+    """[(frame, team)]: when play resumes, and the team of the player nearest the ball."""
+    frames = []
+    r = np.diff(np.r_[0, still.astype(int), 0])
+    starts, ends = np.flatnonzero(r == 1), np.flatnonzero(r == -1)
+    frames += [e for s, e in zip(starts, ends) if e - s >= p.min_still]   # (a) still ball kicked
+    frames += list(tag_restarts)                                           # (b) tagged set pieces
+
+    px, py, team, bx, by = atd["px"], atd["py"], atd["team"], atd["bx"], atd["by"]
+    out = []
+    for f in sorted(set(frames)):
+        # the ball sighting closest to the restart, within 1 s before / 0.2 s after
+        win = np.arange(max(0, f - 25), min(len(bx), f + 5))
+        seen = win[~np.isnan(bx[win])]
+        if len(seen) == 0:
+            continue
+        k = seen[np.argmin(np.abs(seen - f))]
+        d = np.hypot(px[k] - bx[k], py[k] - by[k])
+        if np.all(np.isnan(d)):
+            continue
+        j = np.nanargmin(d)
+        if d[j] > p.kicker_radius:          # nobody close enough: don't guess
+            continue
+        out.append((int(f), int(team[j])))
+    return out
+
+
 def features(atd, tags, p, game=GAME):
     n = len(atd["bx"])
     length, width = GAMES[game]["pitch"]
@@ -236,7 +265,22 @@ def features(atd, tags, p, game=GAME):
     E[:, H] = team_score + p.w_phase * phase
     E[:, A] = -team_score - p.w_phase * phase
     E[:, D] = dead_score
+
+    # --- step 1: still ball, restart zones, goals
+    still = still_ball(atd["bx"], atd["by"], p)
+    zone = restart_zone(atd["bx"], atd["by"], p) & still
+    E[:, D] += p.w_still * still + p.w_zone * zone + p.w_goal * goal_dead(atd, tags, p)
+
+    # --- step 2: give the restart to the kicker's team
+    tag_restarts = [int(t["start_frame"] + p.tag_restart_frac * (t["end_frame"] - t["start_frame"]))
+                    for t in tags if (t["code"] or "").strip().lower() == "set pieces"]
+    hold = int(p.restart_hold_s * 25)
+    for f, k in restart_events(atd, still, tag_restarts, p):
+        window = slice(f, min(n, f + hold))
+        E[window, k] += p.w_restart          # kicker's team has the ball
+        E[window, D] -= p.w_restart_alive    # and it is in play
     return E, kickoffs
+
 
 
 def viterbi(E, p):
