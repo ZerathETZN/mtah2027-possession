@@ -64,6 +64,21 @@ class Params:
                                    # "switches" by sneaking through a fake dead ball
     from_dead_cost: float = 20.0
 
+        # --- step 1: extra dead-ball evidence
+    still_speed: float = 1.0      # m/s; ball slower than this counts as still
+    still_window: int = 25        # frames (1 s) the ball must stay still
+    w_still: float = 1.5          # still ball -> looks like a set piece
+    w_zone: float = 1.0           # still ball at touchline / goal line / goal area
+    zone_m: float = 2.0           # metres from the line that counts as "at the line"
+    w_goal: float = 5.0           # between a goal and its kick-off
+    # --- step 2: who restarts
+    min_still: int = 25           # a still run this long, then movement = a restart
+    kicker_radius: float = 3.0    # kicker must be this close to the ball
+    w_restart: float = 1.5        # team bonus for the kicker's side after a restart
+    restart_hold_s: float = 2.0   # how long that bonus lasts
+    w_restart_alive: float = 2.0  # just after a restart the ball is alive, not dead
+
+
     def as_dict(self):
         return asdict(self)
 
@@ -110,6 +125,60 @@ def team_of_tag(tag):
     if t.startswith("atletic") or t.startswith("athletic"):
         return A
     return None
+
+def ball_speed(bx, by, fps=25):
+    v = np.full(len(bx), np.nan, dtype=np.float32)
+    v[1:] = np.hypot(np.diff(bx), np.diff(by)) * fps   # NaN wherever the ball is unseen
+    return v
+
+
+def rolling_mean(x, w):
+    """Centred mean over w frames, ignoring NaN."""
+    ok = ~np.isnan(x)
+    c = np.r_[0, np.cumsum(np.where(ok, x, 0))]
+    k = np.r_[0, np.cumsum(ok)]
+    i = np.arange(len(x))
+    lo = np.clip(i - w // 2, 0, len(x))
+    hi = np.clip(i + w // 2 + 1, 0, len(x))
+    n = k[hi] - k[lo]
+    with np.errstate(all="ignore"):
+        return np.where(n >= w // 2, (c[hi] - c[lo]) / n, np.nan)
+
+
+def still_ball(bx, by, p):
+    v = ball_speed(bx, by)
+    slow = np.where(np.isnan(v), np.nan, (v < p.still_speed).astype(float))
+    return np.nan_to_num(rolling_mean(slow, p.still_window), nan=0.0) > 0.8
+
+
+def restart_zone(bx, by, p, game=GAME):
+    L, W = GAMES[game]["pitch"]
+    near_touch = (by < p.zone_m) | (by > W - p.zone_m)
+    near_goal_line = (bx < p.zone_m) | (bx > L - p.zone_m)
+    goal_area = ((bx < 6.0) | (bx > L - 6.0)) & (np.abs(by - W / 2) < 10.0)
+    return near_touch | near_goal_line | goal_area
+
+
+def goal_dead(atd, tags, p, game=GAME):
+    """Dead from the ball entering the goal to the kick-off after it."""
+    L, W = GAMES[game]["pitch"]
+    n = len(atd["bx"])
+    out = np.zeros(n, bool)
+    kos = sorted(int(t["start_frame"] + p.tag_restart_frac * (t["end_frame"] - t["start_frame"]))
+                 for t in tags if "after goal" in (t["tags"].get("Type") or "").lower())
+    for t in tags:
+        if (t["code"] or "").strip().lower() != "goals":
+            continue
+        ko = next((k for k in kos if k >= t["end_frame"] - 50), None)
+        if ko is None:
+            continue
+        s = t["start_frame"]
+        bx, by = atd["bx"][s:ko], atd["by"][s:ko]
+        in_goal = ((bx < 0.5) | (bx > L - 0.5)) & (np.abs(by - W / 2) < 5.0)
+        hits = np.flatnonzero(in_goal)
+        start = s + hits[0] if len(hits) else max(s, ko - 60 * 25)   # fallback: 60 s before
+        out[start:ko] = True
+    return out
 
 
 def features(atd, tags, p, game=GAME):
