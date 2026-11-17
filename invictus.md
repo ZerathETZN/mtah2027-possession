@@ -5,18 +5,18 @@ More than a Hack 2027, Phase 1. Code: https://github.com/ZerathETZN/mtah2027-pos
 
 ## 1. Approach
 
-We score every frame for three states (home in possession, away in possession, dead ball) from
+I score every frame for three states (home in possession, away in possession, dead ball) from
 hand-designed evidence, then decode the whole half with a 3-state Viterbi path that charges a
 cost for every change of state.
 
-We chose this over a per-frame classifier for two reasons. First, there is no labelled data for
-this game that we are allowed to train on. Second, the ranking metric (spellF1) rewards whole,
+I chose this over a per-frame classifier for two reasons. First, there is no labelled data for
+this game that I are allowed to train on. Second, the ranking metric (spellF1) rewards whole,
 correctly bounded possessions and punishes flicker heavily. A decoder with switching costs gives
 whole possessions by construction, and its few parameters each have a football meaning.
 
 Pipeline:
 
-1. **Team evidence.** For each frame where the ball is tracked, we compute the distance from the
+1. **Team evidence.** For each frame where the ball is tracked, I compute the distance from the
    ball to the nearest home player (dH) and the nearest away player (dA), in metres. The evidence
    for home is `tanh((dA - dH) / 1.5 m)` and the evidence for away is its negative. When nobody is
    within 3 m of the ball (a loose ball or a pass in flight), the evidence is scaled down to 25%.
@@ -65,7 +65,7 @@ from football reasoning and from statistics that need no ground truth: possessio
 possession length and dead-ball share over the full match.
 
 The public 5-minute ground truth was used only to check the pipeline: frame alignment, file
-format, and that the labels mean what we think. We did not use it to choose parameters.
+format, and that the labels mean what I think. Idid not use it to choose parameters.
 
 ## 4. Possession rules implemented
 
@@ -103,7 +103,7 @@ Barcelona has 60.1% of the frames where the ball is in play.
   are in the air.
 - **The ball is missing on 41% of graded frames**, so possession through those stretches is
   carried by the decoder rather than observed.
-- **Too few dead balls.** We label about 20% of frames dead, below the 35-40% typical of a
+- **Too few dead balls.** Ilabel about 20% of frames dead, below the 35-40% typical of a
   professional match.
 - **A goalkeeper holding the ball can look like a dead ball**, because the ball is still.
 - **Throw-ins carry no team tag,** and restarts are attributed only when the ball is tracked at
@@ -111,7 +111,7 @@ Barcelona has 60.1% of the frames where the ball is in play.
 - **Short possessions get merged.** The switch cost that removes flicker also absorbs
   possessions shorter than about 1.5 s.
 
-With more time, we would:
+With more time, Iwould:
 - detect the ball in the tactical video where the ATD loses it, and project it with the
   homography;
 - learn possession from player-only features (team shape, direction of movement), using our
